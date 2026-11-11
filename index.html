@@ -1,0 +1,1615 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🎨カラーマットゲームシミュレーター</title>
+    <style>
+        :root { --panel-width: 300px; }
+        body { margin: 0; font-family: 'Helvetica Neue', Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif; background: #ffffff; overflow: hidden; }
+        /* #ui-panel の更新 */
+        #ui-panel {
+            position: absolute; 
+            top: 10px; 
+            left: 10px; 
+            width: var(--panel-width);
+            max-height: calc(100vh - 20px);
+            max-height: calc(100dvh - 20px); /* 可変ビューポート対応 */
+            background: rgba(255, 255, 255, 0.95); 
+            padding: 15px; 
+            padding-bottom: 40px; 
+            border-radius: 15px; 
+            z-index: 100; 
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            overflow-y: auto; 
+            -webkit-overflow-scrolling: touch; 
+            touch-action: pan-y; 
+            border: 1px solid rgba(255,255,255,0.3); 
+            backdrop-filter: blur(10px); 
+            -webkit-backdrop-filter: blur(10px);
+            box-sizing: border-box;
+            transition: all 0.2s ease-out;
+        }
+        #canvas-container { width: 100vw; height: 100vh; cursor: move; touch-action: none; }
+
+        @media screen and (max-width: 480px) { 
+            :root { --panel-width: calc(100vw - 20px); }
+            #ui-panel { left: 10px; right: 10px; }
+        }
+        
+        @media screen and (orientation: landscape) and (max-height: 500px) {
+            :root { --panel-width: 260px; }
+            #ui-panel { top: 5px; left: 5px; padding: 10px; max-height: calc(100vh - 10px); }
+            .app-title { font-size: 1.1rem; }
+            .input-group { padding: 8px; margin-bottom: 5px; }
+        }
+
+        /* 折りたたんだ（閉じた）時の専用スタイル */
+        #ui-panel.collapsed {
+            max-height: none !important;
+            padding: 10px 15px !important;
+            overflow: hidden !important;
+            width: auto;
+            max-width: calc(100vw - 20px);
+        }
+
+        @media screen and (max-width: 480px) { 
+            /* スマホ表示で閉じた場合、右端の固定を解除してタイトルサイズへ収める */
+            #ui-panel.collapsed { right: auto; }
+        }
+
+        /* ヘッダーをパネル上部に固定（スクロールしても上に張り付く） */
+        .panel-header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            cursor: pointer; 
+            user-select: none; 
+            gap: 10px; 
+            position: sticky; /* パネル内スクロール時も上に固定 */
+            top: -15px;       /* padding 分を相殺 */
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px 0;
+            margin: -15px -15px 10px -15px;
+            padding-left: 15px;
+            padding-right: 15px;
+            z-index: 10;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+        #toggle-text { 
+            font-size: 12px; 
+            font-weight: bold; 
+            color: #666; 
+            background: #eee; 
+            padding: 4px 10px; 
+            border-radius: 10px; 
+            white-space: nowrap; /* テキストの意図しない改行を防止 */
+        }
+        .collapsed #ui-content { display: none; }
+
+        .app-title { 
+            font-size: 1.2rem; 
+            margin: 0; 
+            color: #333; 
+            font-weight: bold; 
+            white-space: nowrap; /* タイトルの改行を防止 */
+        }
+        .app-description { font-size: 11px; color: #777; margin-top: 8px; margin-bottom: 5px; line-height: 1.5; text-align: center; }
+        
+        .app-disclaimer { 
+            font-size: 9px; 
+            color: #aaa; 
+            margin-bottom: 12px; 
+            line-height: 1.4; 
+            text-align: left;
+            background: #f9f9f9;
+            padding: 8px;
+            border-radius: 8px;
+        }
+
+        .input-group { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; margin-bottom: 10px; }
+        .group-a { background: #fff5f0; border: 1px solid #ffe0d0; }
+        .group-b { background: #f0f7ff; border: 1px solid #d0e7ff; }
+        .group-layout { background: #f9f9f9; border: 1px solid #eee; }
+        .section-header { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+        .section-header strong { font-size: 15px; color: #444; }
+        .input-row { display: flex; gap: 8px; align-items: flex-end; width: 100%; }
+        .input-item { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+        .hint { font-size: 10px; color: #999; margin-bottom: 2px; font-weight: bold; }
+        input, select { padding: 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; background: white; color: #333; width: 100%; box-sizing: border-box; }
+        
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] { -moz-appearance: textfield; }
+
+        .color-picker { width: 100%; height: 38px; border: 2px solid #999; border-radius: 4px; cursor: pointer; padding: 0; background: none; appearance: none; -webkit-appearance: none; }
+        
+        /* ラジオボタン切替エリア（外枠・背景） */
+        .radio-switch { display: flex; gap: 4px; background: #eee; padding: 3px; border-radius: 8px; margin-top: 2px; }
+        /* 選択肢（ボタン部分）のベース */
+        .radio-switch label { flex: 1; text-align: center; font-size: 11px; font-weight: bold; padding: 6px 0; border-radius: 6px; cursor: pointer; color: #666; transition: 0.2s; user-select: none; }
+        /* 本来のラジオボタン丸アイコンを非表示にする */
+        .radio-switch input { display: none; }
+        /* 選択されている項目のスタイル（白背景＆影をつける） */
+        .radio-switch input:checked + label { background: white; color: #333; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+
+        .switch-btn { width: 100%; padding: 12px; background: #333; color: white; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; -webkit-tap-highlight-color: transparent; margin-bottom: 10px; }
+        .switch-btn:active { background: #000; transform: scale(0.98); }
+        .swap-btn { margin-bottom: 5px; }
+
+        .anim-controls {
+            display: flex;       
+            gap: 8px;            
+            margin-bottom: 10px;
+        }
+        .btn-anim {
+            flex: 1;             
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            background: #fff;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .btn-anim.active {
+            background: #333;
+            color: #fff;
+            border-color: #333;
+        }
+
+        .share-btn { 
+            width: 100%; padding: 12px; background: #000; color: white; border: none; border-radius: 10px; 
+            font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 13px; 
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            text-decoration: none; margin-top: 10px;
+        }
+        .share-btn:active { transform: scale(0.98); opacity: 0.8; }
+
+        .other-tools-link { margin-top: 20px; padding: 10px; background: #f9f9f9; border-radius: 10px; text-align: center; }
+        .other-tools-link a { text-decoration: none; color: #333; font-size: 12px; font-weight: bold; border: 2px solid #333; padding: 8px 15px; border-radius: 30px; display: inline-block; transition: 0.3s; margin: 4px; }
+        .other-tools-link a:hover { background: #333; color: #fff; }
+
+        .usage-notes { font-size: 10px; color: #999; margin-top: 12px; line-height: 1.5; text-align: center; }
+
+        .info-box { background: #ffffff; padding: 15px; border-radius: 12px; margin-top: 12px; border: 1px solid #eee; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); }
+        .info-row { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0; }
+        .info-row:not(:last-child) { border-bottom: 1px dashed #eee; margin-bottom: 4px; }
+        .info-label { color: #555; font-size: 12px; font-weight: bold; display: flex; align-items: center; gap: 4px; }
+        .info-value { font-weight: 800; font-size: 18px; color: #2c3e50; font-variant-numeric: tabular-nums; }
+        .unit { font-size: 11px; margin-left: 3px; color: #7f8c8d; font-weight: normal; }
+        
+        #view-label { 
+            position: absolute; 
+            bottom: 20px; 
+            right: 15px; 
+            background: rgba(0,0,0,0.7); 
+            color: white; 
+            padding: 8px 16px; 
+            border-radius: 20px; 
+            font-size: 12px; 
+            font-weight: bold; 
+            z-index: 90; 
+            pointer-events: none; 
+        }
+        #draw-float { position: absolute; right: 15px; bottom: 66px; width: auto; margin: 0; padding: 12px 22px; z-index: 95; box-shadow: 0 4px 16px rgba(0,0,0,0.25); }
+        .crosshair { position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; border: 2px solid rgba(0,0,0,0.15); border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+    </style>
+</head>
+<body>
+
+<div id="ui-panel">
+    <div class="panel-header" onclick="togglePanel()">
+        <h1 class="app-title">🎨カラーマットゲーム<br>シミュレーター</h1>
+        <span id="toggle-text">閉じる</span>
+    </div>
+
+    <div id="ui-content">
+        <p class="app-description">カラーマットゲームで2人がどこまで絡めるかをシミュレーションします。<br>お題を引くと、手足を置く色が決まります。<br>
+※ポーズは自動で計算されます。</p>
+
+        <div class="input-group group-a">
+            <div class="section-header"><strong>A</strong></div>
+            <div class="input-row">
+                <div class="input-item"><span class="hint">名前</span><input type="text" id="nameA" placeholder="名前A" oninput="updateScene()"></div>
+                <div class="input-item" style="flex: 0.6;"><span class="hint">性別</span><select id="genderA" onchange="updateScene()"><option value="male">男</option><option value="female" selected>女</option></select></div>
+            </div>
+            <div class="input-row">
+                <div class="input-item"><span class="hint">身長 (cm)</span><input type="number" id="heightA" value="158.0" step="0.1" oninput="updateScene()"></div>
+                <div class="input-item" style="flex: 0.35;"><span class="hint">色</span><input type="color" id="colorA" class="color-picker" value="#ffcc99" oninput="updateScene()"></div>
+            </div>
+        </div>
+
+        <div class="input-group group-b">
+            <div class="section-header"><strong>B</strong></div>
+            <div class="input-row">
+                <div class="input-item"><span class="hint">名前</span><input type="text" id="nameB" placeholder="名前B" oninput="updateScene()"></div>
+                <div class="input-item" style="flex: 0.6;"><span class="hint">性別</span><select id="genderB" onchange="updateScene()"><option value="male" selected>男</option><option value="female">女</option></select></div>
+            </div>
+            <div class="input-row">
+                <div class="input-item"><span class="hint">身長 (cm)</span><input type="number" id="heightB" value="171.5" step="0.1" oninput="updateScene()"></div>
+                <div class="input-item" style="flex: 0.35;"><span class="hint">色</span><input type="color" id="colorB" class="color-picker" value="#ffad60" oninput="updateScene()"></div>
+            </div>
+        </div>
+
+        <div class="input-group group-layout">
+            <div class="section-header"><strong>🎨 カラーマット</strong></div>
+            <div class="input-item">
+                <span class="hint">鉄板パターン</span>
+                <div class="anim-controls" style="margin-bottom:4px;">
+                    <button class="btn-anim" onclick="applyPreset(0)">① 覆いかぶさる</button>
+                    <button class="btn-anim" onclick="applyPreset(1)">② 腕の下に潜る</button>
+                </div>
+                <div class="anim-controls" style="margin-bottom:4px;">
+                    <button class="btn-anim" onclick="applyPreset(2)">③ 背中合わせ</button>
+                    <button class="btn-anim" onclick="applyPreset(3)">④ 向かい合って覆う</button>
+                </div>
+                <div class="anim-controls" style="margin-bottom:4px;">
+                    <button class="btn-anim" onclick="applyPreset(4)">⑤ 逆向きに絡む</button>
+                    <button class="btn-anim" onclick="applyPreset(5)">⑥ 跨いで密着</button>
+                </div>
+                <div class="anim-controls" style="margin-bottom:4px;">
+                    <button class="btn-anim" onclick="applyPreset(6)">⑦ くっついて絡む</button>
+                    <button class="btn-anim" onclick="resetGame()">🔄 リセット</button>
+                </div>
+            </div>
+            <button class="switch-btn" style="margin: 4px 0 0 0;" onclick="drawNext()">🎲 お題を引く</button>
+            <div id="game-status" style="font-size:12px; line-height:1.8; color:#444; min-height:24px;"></div>
+        </div>
+
+        <div style="padding: 0 5px;">
+            <button class="switch-btn swap-btn" onclick="swapAB()">⇄ AとBを入れ替える</button>
+            <button class="switch-btn" onclick="switchView()">🔄 視点を切り替える</button>
+        </div>
+
+        <div id="info-container">
+            <div class="info-box" id="info"></div>
+            <button class="share-btn" onclick="shareToX()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></svg>で結果をシェアする
+            </button>
+            <div class="other-tools-link">
+                <p style="font-size: 10px; color: #888; margin-bottom: 8px;">こちらもチェック❣🤩</p>
+                <a href="https://qwertyaz111.github.io/my-site-hub/">ツール・シミュレーター一覧</a>
+            </div>
+            <div class="usage-notes">
+                スクショ投稿や加工、トレース等はご自由にお楽しみください。<br>
+                ※営利目的や商用利用はご遠慮ください。
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="view-label">三人称視点</div>
+<button id="draw-float" class="switch-btn" onclick="drawNext()">🎲 お題を引く</button>
+<div class="crosshair" id="crosshair" style="display:none;"></div>
+<div id="canvas-container"></div>
+
+<script type="module">
+import * as THREE from 'https://unpkg.com/three@0.158.0/build/three.module.js';
+
+let scene, camera, renderer, clock;
+let personA, personB, walkGroup, matGroup;
+let currentView = '3rd';
+let carrySide = 1;
+const DEFAULT_ROT_3RD = { x: 0.2, y: 0.45 }; // 三人称の初期は斜め前から見る
+let rotation = { x: DEFAULT_ROT_3RD.x, y: DEFAULT_ROT_3RD.y }, camDist = 3.4, isDragging = false, previousTouch = null, initialPinchDist = null;
+let game = newGameState();
+let lastSolution = null;
+let drawRng = mulberry32(20261111);
+
+// ================= 箱詰めソルバー（three.jsに依存しない純粋な数学） =================
+const PI = Math.PI;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function gauss(r){let u=0,v=0;while(u===0)u=r();while(v===0)v=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*PI*v);}
+function clampN(v,a,b){return v<a?a:(v>b?b:v);}
+
+// ----- クォータニオン [x,y,z,w] -----
+function qMul(a,b){return [a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1], a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0], a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3], a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2]];}
+function qX(a){return [Math.sin(a/2),0,0,Math.cos(a/2)];}
+function qY(a){return [0,Math.sin(a/2),0,Math.cos(a/2)];}
+function qZ(a){return [0,0,Math.sin(a/2),Math.cos(a/2)];}
+function qInv(q){return [-q[0],-q[1],-q[2],q[3]];}
+function qRot(q,v){
+    const x=q[0],y=q[1],z=q[2],w=q[3];
+    const ix=w*v[0]+y*v[2]-z*v[1], iy=w*v[1]+z*v[0]-x*v[2], iz=w*v[2]+x*v[1]-y*v[0], iw=-x*v[0]-y*v[1]-z*v[2];
+    return [ix*w+iw*-x+iy*-z-iz*-y, iy*w+iw*-y+iz*-x-ix*-z, iz*w+iw*-z+ix*-y-iy*-x];
+}
+function qAxes(q){
+    const x=q[0],y=q[1],z=q[2],w=q[3];
+    const xx=x*x,yy=y*y,zz=z*z,xy=x*y,xz=x*z,yz=y*z,wx=w*x,wy=w*y,wz=w*z;
+    return [1-2*(yy+zz),2*(xy+wz),2*(xz-wy), 2*(xy-wz),1-2*(xx+zz),2*(yz+wx), 2*(xz+wy),2*(yz-wx),1-2*(xx+yy)];
+}
+function vAdd(a,b){return [a[0]+b[0],a[1]+b[1],a[2]+b[2]];}
+function vScale(a,s){return [a[0]*s,a[1]*s,a[2]*s];}
+// 真下向きの棒を d の向きへ回す（three.jsのaim()と同じ：回転順XYZ）
+function qAim(d){
+    const l=Math.hypot(d[0],d[1],d[2])||1;
+    const dx=d[0]/l, dy=d[1]/l, dz=d[2]/l;
+    return qMul(qX(Math.atan2(-dz,-dy)), qZ(Math.asin(clampN(dx,-1,1))));
+}
+
+// ----- 体の寸法（createMannequinと同じ比率） -----
+function makeDims(heightCm, gender){
+    const h=heightCm*0.01, headH=h*0.13, neckH=h*0.05, torsoH=h*0.37, legH=h*0.45;
+    const torsoW=(gender==='male'?0.26:0.21)*(h/1.7), torsoD=torsoW*0.5;
+    const armT=torsoW*0.3, legT=torsoW*0.4;
+    const shoulderW=torsoW*0.5+armT*0.2;
+    const shoulderY=legH+torsoH-torsoW*0.15;
+    return {h,headH,neckH,torsoH,legH,torsoW,torsoD,armT,legT,shoulderW,
+        shoulderYRel:shoulderY-legH, armHalf:h*0.38/2, legHalf:legH/2, headR:headH*0.8,
+        headYRel:h-headH*0.5-legH, legX:torsoW*0.25};
+}
+
+// ----- 姿勢パラメーター -----
+// 体: [px,py,pz,yaw,pitch,roll, 背骨前後,背骨左右,背骨ひねり, 左脚(股屈曲,開き,ひねり,膝), 右脚(同)]
+const GN=17;
+const G_LO=[-3,0,-3,-1e9,-1.8,-1.8,-0.5,-0.5,-0.8, -0.5,-0.35,-1.0,0, -0.5,-0.35,-1.0,0];
+const G_HI=[ 3,3, 3, 1e9, 1.8, 1.8, 1.25,0.5,0.8,  2.1,1.0,1.2,2.55,  2.1,1.0,1.2,2.55];
+const G_SIG=[0.05,0.03,0.05,0.25,0.25,0.15,0.18,0.12,0.2, 0.25,0.15,0.25,0.3, 0.25,0.15,0.25,0.3];
+// 腕: [左(肩前,肩開き,肩ひねり,肘), 右(同)]
+const A_LO=[-0.9,-0.5,-1.2,0, -0.9,-0.5,-1.2,0];
+const A_HI=[ 2.9, 2.6, 1.2,2.5,  2.9, 2.6, 1.2,2.5];
+const ARM_NEUTRAL=[0.15,0.3,0,0.45, 0.15,0.3,0,0.45];
+
+function limbDirsArm(arm,i){
+    const s=i===0?-1:1, o=i*4;
+    const f=arm[o],a=arm[o+1],r=arm[o+2],e=arm[o+3];
+    const Rh=qMul(qMul(qZ(s*a),qX(-f)),qY(-s*r));
+    return {dU:qRot(Rh,[0,-1,0]), dL:qRot(qMul(Rh,qX(-e)),[0,-1,0])};
+}
+// ana=true のときは「脚を横に開いてから前に上げる」解剖学的な順序（座ったままでも膝が左右に開ける）。
+// ana=false は従来どおり（他のポーズの形は変えない）
+function limbDirsLeg(g,i,ana){
+    const s=i===0?-1:1, o=9+i*4;
+    const flex=g[o],abd=g[o+1],ext=g[o+2],knee=g[o+3];
+    const Rh=ana?qMul(qMul(qX(-flex),qZ(s*abd)),qY(-s*ext)):qMul(qMul(qZ(s*abd),qX(-flex)),qY(-s*ext));
+    return {dU:qRot(Rh,[0,-1,0]), dL:qRot(qMul(Rh,qX(knee)),[0,-1,0])};
+}
+function rootQ(g){return qMul(qMul(qY(g[3]),qX(g[4])),qZ(g[5]));}
+function spineQ(g){return qMul(qMul(qX(g[6]),qZ(g[7])),qY(g[8]));}
+
+// ----- 当たり判定用パーツ -----
+function mkObb(c,q,e){
+    const a=qAxes(q);
+    const ex=e[0]*Math.abs(a[0])+e[1]*Math.abs(a[3])+e[2]*Math.abs(a[6]);
+    const ey=e[0]*Math.abs(a[1])+e[1]*Math.abs(a[4])+e[2]*Math.abs(a[7]);
+    const ez=e[0]*Math.abs(a[2])+e[1]*Math.abs(a[5])+e[2]*Math.abs(a[8]);
+    return {s:false,c,a,e,ex,ey,ez,br:Math.hypot(e[0],e[1],e[2])};
+}
+function mkSphere(c,r){return {s:true,c,r,ex:r,ey:r,ez:r,br:r};}
+// 腕・脚（2分割＋関節）
+function limb(frameQ,origin,dU,dL,half,t,P,idx){
+    const qU=qAim(dU);
+    const qa=qMul(frameQ,qU);
+    const downU=qRot(qa,[0,-1,0]);
+    const dLloc=qRot(qInv(qU),dL);
+    const qb=qMul(qa,qAim(dLloc));
+    const downL=qRot(qb,[0,-1,0]);
+    const knee=vAdd(origin,vScale(downU,half));
+    P[idx]=mkObb(vAdd(origin,vScale(downU,half/2)),qa,[t/2,half/2,t/2]);
+    P[idx+1]=mkObb(vAdd(knee,vScale(downL,half/2)),qb,[t/2,half/2,t/2]);
+    return vAdd(knee,vScale(downL,half));
+}
+// 0胴 1頭 2左上腕 3左前腕 4右上腕 5右前腕 6左もも 7左すね 8右もも 9右すね
+function buildBody(d,g,arm,ana){
+    const Rr=rootQ(g), Rt=qMul(Rr,spineQ(g));
+    const hip=[g[0],g[1],g[2]];
+    const P=new Array(10);
+    P[0]=mkObb(vAdd(hip,qRot(Rt,[0,d.torsoH/2,0])),Rt,[d.torsoW/2,d.torsoH/2,d.torsoD/2]);
+    P[1]=mkSphere(vAdd(hip,qRot(Rt,[0,d.headYRel,0])),d.headR);
+    P.hands=[null,null]; P.feet=[null,null];
+    for(let i=0;i<2;i++){
+        const s=i===0?-1:1;
+        const sh=vAdd(hip,qRot(Rt,[s*d.shoulderW,d.shoulderYRel,0]));
+        const dr=limbDirsArm(arm,i);
+        P.hands[i]=limb(Rt,sh,dr.dU,dr.dL,d.armHalf,d.armT,P,2+i*2);
+    }
+    for(let i=0;i<2;i++){
+        const s=i===0?-1:1;
+        const an=vAdd(hip,qRot(Rr,[s*d.legX,0,0]));
+        const dr=limbDirsLeg(g,i,ana);
+        P.feet[i]=limb(Rr,an,dr.dU,dr.dL,d.legHalf,d.legT,P,6+i*2);
+    }
+    P.hip=hip; P.Rt=Rt;
+    return P;
+}
+
+// ----- 衝突の深さ -----
+function obbDepth(A,B){
+    const t0=B.c[0]-A.c[0], t1=B.c[1]-A.c[1], t2=B.c[2]-A.c[2];
+    const a=A.a,b=B.a,ea=A.e,eb=B.e;
+    let best=1e9;
+    for(let i=0;i<3;i++){
+        const ax=a[3*i],ay=a[3*i+1],az=a[3*i+2];
+        const dist=Math.abs(t0*ax+t1*ay+t2*az);
+        const rb=eb[0]*Math.abs(ax*b[0]+ay*b[1]+az*b[2])+eb[1]*Math.abs(ax*b[3]+ay*b[4]+az*b[5])+eb[2]*Math.abs(ax*b[6]+ay*b[7]+az*b[8]);
+        const ov=ea[i]+rb-dist; if(ov<=0) return 0; if(ov<best) best=ov;
+    }
+    for(let j=0;j<3;j++){
+        const bx=b[3*j],by=b[3*j+1],bz=b[3*j+2];
+        const dist=Math.abs(t0*bx+t1*by+t2*bz);
+        const ra=ea[0]*Math.abs(bx*a[0]+by*a[1]+bz*a[2])+ea[1]*Math.abs(bx*a[3]+by*a[4]+bz*a[5])+ea[2]*Math.abs(bx*a[6]+by*a[7]+bz*a[8]);
+        const ov=eb[j]+ra-dist; if(ov<=0) return 0; if(ov<best) best=ov;
+    }
+    for(let i=0;i<3;i++){
+        const ax=a[3*i],ay=a[3*i+1],az=a[3*i+2];
+        for(let j=0;j<3;j++){
+            const bx=b[3*j],by=b[3*j+1],bz=b[3*j+2];
+            let nx=ay*bz-az*by, ny=az*bx-ax*bz, nz=ax*by-ay*bx;
+            const l=Math.sqrt(nx*nx+ny*ny+nz*nz);
+            if(l<1e-3) continue;
+            nx/=l;ny/=l;nz/=l;
+            const dist=Math.abs(t0*nx+t1*ny+t2*nz);
+            const ra=ea[0]*Math.abs(nx*a[0]+ny*a[1]+nz*a[2])+ea[1]*Math.abs(nx*a[3]+ny*a[4]+nz*a[5])+ea[2]*Math.abs(nx*a[6]+ny*a[7]+nz*a[8]);
+            const rb=eb[0]*Math.abs(nx*b[0]+ny*b[1]+nz*b[2])+eb[1]*Math.abs(nx*b[3]+ny*b[4]+nz*b[5])+eb[2]*Math.abs(nx*b[6]+ny*b[7]+nz*b[8]);
+            const ov=ra+rb-dist; if(ov<=0) return 0; if(ov<best) best=ov;
+        }
+    }
+    return best;
+}
+// 符号つき距離（正＝離れている：SATの最大分離量、負＝めり込み）
+function obbSep(A,B){
+    const t0=B.c[0]-A.c[0], t1=B.c[1]-A.c[1], t2=B.c[2]-A.c[2];
+    const a=A.a,b=B.a,ea=A.e,eb=B.e;
+    let best=-1e9;
+    for(let i=0;i<3;i++){
+        const ax=a[3*i],ay=a[3*i+1],az=a[3*i+2];
+        const dist=Math.abs(t0*ax+t1*ay+t2*az);
+        const rb=eb[0]*Math.abs(ax*b[0]+ay*b[1]+az*b[2])+eb[1]*Math.abs(ax*b[3]+ay*b[4]+az*b[5])+eb[2]*Math.abs(ax*b[6]+ay*b[7]+az*b[8]);
+        const s=dist-ea[i]-rb; if(s>best) best=s;
+    }
+    for(let j=0;j<3;j++){
+        const bx=b[3*j],by=b[3*j+1],bz=b[3*j+2];
+        const dist=Math.abs(t0*bx+t1*by+t2*bz);
+        const ra=ea[0]*Math.abs(bx*a[0]+by*a[1]+bz*a[2])+ea[1]*Math.abs(bx*a[3]+by*a[4]+bz*a[5])+ea[2]*Math.abs(bx*a[6]+by*a[7]+bz*a[8]);
+        const s=dist-eb[j]-ra; if(s>best) best=s;
+    }
+    return best;
+}
+function sphereObbDepth(S,O){
+    const dx=S.c[0]-O.c[0],dy=S.c[1]-O.c[1],dz=S.c[2]-O.c[2];
+    const a=O.a,e=O.e;
+    const l0=dx*a[0]+dy*a[1]+dz*a[2], l1=dx*a[3]+dy*a[4]+dz*a[5], l2=dx*a[6]+dy*a[7]+dz*a[8];
+    const c0=clampN(l0,-e[0],e[0]), c1=clampN(l1,-e[1],e[1]), c2=clampN(l2,-e[2],e[2]);
+    const q0=l0-c0,q1=l1-c1,q2=l2-c2;
+    const d2=q0*q0+q1*q1+q2*q2;
+    if(d2>1e-12){const dd=Math.sqrt(d2); return S.r-dd>0?S.r-dd:0;}
+    const m=Math.min(e[0]-Math.abs(l0),e[1]-Math.abs(l1),e[2]-Math.abs(l2));
+    return S.r+m;
+}
+function pairDepth(P,Q){
+    const dx=P.c[0]-Q.c[0],dy=P.c[1]-Q.c[1],dz=P.c[2]-Q.c[2];
+    const rr=P.br+Q.br;
+    if(dx*dx+dy*dy+dz*dz>=rr*rr) return 0;
+    if(P.s){
+        if(Q.s){const d=Math.sqrt(dx*dx+dy*dy+dz*dz);const v=P.r+Q.r-d;return v>0?v:0;}
+        return sphereObbDepth(P,Q);
+    }
+    if(Q.s) return sphereObbDepth(Q,P);
+    return obbDepth(P,Q);
+}
+// 点とOBB表面の距離
+function pointObbDist(p,O){
+    const dx=p[0]-O.c[0],dy=p[1]-O.c[1],dz=p[2]-O.c[2];
+    if(O.s){return Math.max(0,Math.sqrt(dx*dx+dy*dy+dz*dz)-O.r);}
+    const a=O.a,e=O.e;
+    const l0=dx*a[0]+dy*a[1]+dz*a[2], l1=dx*a[3]+dy*a[4]+dz*a[5], l2=dx*a[6]+dy*a[7]+dz*a[8];
+    const q0=l0-clampN(l0,-e[0],e[0]),q1=l1-clampN(l1,-e[1],e[1]),q2=l2-clampN(l2,-e[2],e[2]);
+    return Math.sqrt(q0*q0+q1*q1+q2*q2);
+}
+
+// 自分の体どうしの干渉判定（隣り合う関節は除外・少しの重なりは許容）
+const SELF_PAIRS=[
+    [1,2,0.012],[1,4,0.012],[1,3,0.004],[1,5,0.004],[1,6,0],[1,7,0],[1,8,0],[1,9,0],
+    [0,2,0.03],[0,4,0.03],[0,3,0.012],[0,5,0.012],[0,7,0.01],[0,9,0.01],
+    [2,4,0.004],[2,5,0.004],[3,4,0.004],[3,5,0.004],
+    [2,6,0.004],[2,7,0.004],[2,8,0.004],[2,9,0.004],[3,6,0.004],[3,7,0.004],[3,8,0.004],[3,9,0.004],
+    [4,6,0.004],[4,7,0.004],[4,8,0.004],[4,9,0.004],[5,6,0.004],[5,7,0.004],[5,8,0.004],[5,9,0.004],
+    [6,8,0.004],[6,9,0.004],[7,8,0.004],[7,9,0.004]
+];
+const NOARM_IDX=[0,1,6,7,8,9];
+function selfPen(P,useArms){
+    let s=0;
+    for(let k=0;k<SELF_PAIRS.length;k++){
+        const pr=SELF_PAIRS[k];
+        if(!useArms && (pr[0]>=2&&pr[0]<=5||pr[1]>=2&&pr[1]<=5)) continue;
+        const v=pairDepth(P[pr[0]],P[pr[1]])-pr[2];
+        if(v>0) s+=v;
+    }
+    return s;
+}
+function bodyVolWeights(d){
+    return [8*d.torsoW/2*d.torsoH/2*d.torsoD/2, 4/3*PI*d.headR*d.headR*d.headR,
+        d.armT*d.armT*d.armHalf,d.armT*d.armT*d.armHalf,d.armT*d.armT*d.armHalf,d.armT*d.armT*d.armHalf,
+        d.legT*d.legT*d.legHalf,d.legT*d.legT*d.legHalf,d.legT*d.legT*d.legHalf,d.legT*d.legT*d.legHalf];
+}
+
+// ===================================================================
+// カラーマット：マット・お題・到達ソルバー
+// マットは丸の直径20cm・横間隔25cm・縦間隔28cmで
+// プレイ面 1.45m×1.04m とした。色の並びは ピンク・オレンジ・水色・紫（各6個）。
+// ===================================================================
+const ROW_DEFS = [
+    { name: 'ピンク', color: 0xf472a0, css: '#f472a0' },
+    { name: 'オレンジ', color: 0xf59a3d, css: '#f59a3d' },
+    { name: '水色', color: 0x4db2e8, css: '#4db2e8' },
+    { name: '紫', color: 0x9b7ede, css: '#9b7ede' }
+];
+const MAT = { cols: 6, rows: 4, R: 0.10, W: 1.45, D: 1.04 };
+function circlePos(ci, ri) { return [-0.625 + ci * 0.25, -0.42 + ri * 0.28]; }
+// 手足の定義（idx はマネキンの左右インデックス：0=体の右側、1=左側）
+const LIMBS = [
+    { key: 'RH', label: '右手', kind: 'hand', idx: 0 },
+    { key: 'LH', label: '左手', kind: 'hand', idx: 1 },
+    { key: 'RF', label: '右足', kind: 'foot', idx: 0 },
+    { key: 'LF', label: '左足', kind: 'foot', idx: 1 }
+];
+const LIMB_BY_KEY = {}; LIMBS.forEach(L => LIMB_BY_KEY[L.key] = L);
+
+function newGameState() {
+    return { placements: { A: {}, B: {} }, order: [], turn: 0, lastPrompt: null,
+             yawSeed: { A: Math.PI / 2, B: -Math.PI / 2 }, together: 0, lockYaw: 0, presetName: '' };
+}
+
+// 鉄板パターン（[誰, 手足, 列, 行] の順に置いていく）
+const PRESETS = [
+    { name: '① BがAに覆いかぶさる', yaw: { A: -Math.PI / 2, B: -Math.PI / 2 },
+      bodySeed: { A: { hip: [0.05, 0.34, 0], yaw: -Math.PI / 2, pitch: 0.55, spine: 0.55 },
+                  B: { hip: [0.30, 0.52, 0], yaw: -Math.PI / 2, pitch: 0.95, spine: 0.35 } }, steps: [
+        ['A', 'RF', 3, 1], ['A', 'LF', 3, 2], ['A', 'RH', 2, 1], ['A', 'LH', 2, 2],
+        ['B', 'RF', 5, 1], ['B', 'LF', 5, 2], ['B', 'RH', 2, 0], ['B', 'LH', 2, 3] ] },
+    { name: '② AがBの腕の下に潜る', yaw: { A: Math.PI / 2, B: -Math.PI / 2 }, steps: [
+        ['B', 'RF', 5, 1], ['B', 'LF', 5, 2], ['B', 'RH', 4, 0], ['B', 'LH', 4, 3],
+        ['A', 'RF', 1, 3], ['A', 'LF', 1, 0], ['A', 'LH', 2, 1], ['A', 'RH', 4, 2] ] },
+    { name: '③ 背中合わせで絡む', yaw: { A: -Math.PI / 2, B: Math.PI / 2 }, together: 0.20, lockYaw: 6, torsoPull: 0.32, steps: [
+        ['A', 'RF', 2, 0], ['A', 'LF', 2, 3], ['B', 'RF', 4, 3], ['B', 'LF', 4, 0],
+        ['A', 'RH', 1, 1], ['A', 'LH', 2, 2], ['B', 'RH', 4, 2], ['B', 'LH', 4, 1] ] },
+    { name: '④ 向かい合って覆いかぶさる', yaw: { A: -Math.PI / 2, B: -Math.PI / 2 }, together: 0.15, torsoPull: 0.20,
+      bodySeed: { A: { hip: [0.05, 0.31, 0], yaw: -Math.PI / 2, pitch: -1.15, spine: 0.2 },
+                  B: { hip: [0.18, 0.46, 0], yaw: -Math.PI / 2, pitch: 1.02, spine: 0.45 } }, steps: [
+        ['A', 'RF', 3, 1], ['A', 'LF', 4, 2], ['A', 'RH', 3, 0], ['A', 'LH', 3, 3],
+        ['B', 'RF', 5, 1], ['B', 'LF', 5, 2], ['B', 'RH', 2, 0], ['B', 'LH', 2, 3] ] },
+    { name: '⑤ 逆向きに絡む', yaw: { A: Math.PI / 2, B: -Math.PI / 2 }, torsoPull: 0.38,
+      bodySeed: { A: { hip: [-0.15, 0.38, -0.08], yaw: Math.PI / 2, pitch: 0.55, spine: 0.5 },
+                  B: { hip: [0.15, 0.38, 0.08], yaw: -Math.PI / 2, pitch: 0.65, spine: 0.45 } }, steps: [
+        ['A', 'RF', 0, 0], ['B', 'RF', 5, 3], ['A', 'LF', 0, 1], ['B', 'LF', 5, 2],
+        ['A', 'RH', 3, 2], ['B', 'RH', 2, 1], ['A', 'LH', 3, 1], ['B', 'LH', 2, 0] ] },
+    { name: '⑥ 跨いで密着', yaw: { A: -Math.PI / 2, B: -Math.PI / 2 },
+      bodySeed: { A: { hip: [0.15, 0.34, 0], yaw: -Math.PI / 2, pitch: 0.55, spine: 0.55 },
+                  B: { hip: [0.05, 0.50, 0], yaw: -Math.PI / 2, pitch: 1.05, spine: 0.3 } }, steps: [
+        ['A', 'RF', 5, 1], ['A', 'LF', 5, 2], ['A', 'RH', 2, 1], ['A', 'LH', 2, 2],
+        ['B', 'RF', 3, 0], ['B', 'LF', 3, 3], ['B', 'RH', 1, 0], ['B', 'LH', 1, 3] ] },
+    { name: '⑦ くっついて絡む', yaw: { A: -Math.PI / 2, B: -Math.PI / 2 }, together: 0.15, lockYaw: 6, torsoPull: 0.21,
+      bodySeed: { A: { hip: [0, 0.30, -0.04], yaw: -Math.PI / 2, pitch: 0.6, spine: 0.6 },
+                  B: { hip: [-0.03, 0.36, 0.04], yaw: -Math.PI / 2, pitch: 0.9, spine: 0.45 } }, steps: [
+        ['A', 'RF', 4, 0], ['A', 'LF', 4, 2], ['A', 'RH', 2, 1], ['A', 'LH', 2, 3],
+        ['B', 'RF', 5, 1], ['B', 'LF', 5, 3], ['B', 'RH', 1, 0], ['B', 'LH', 1, 2] ] }
+];
+
+function applyPresetToState(st, i) {
+    const pr = PRESETS[i];
+    st.yawSeed = { A: pr.yaw.A, B: pr.yaw.B };
+    st.together = pr.together || 0;
+    st.lockYaw = pr.lockYaw || 0;
+    st.bodySeed = pr.bodySeed || null;
+    st.torsoPull = pr.torsoPull || 0;
+    st.presetName = pr.name;
+    for (const [who, limb, ci, ri] of pr.steps) {
+        if (!st.placements[who][limb]) st.order.push({ who, limb });
+        st.placements[who][limb] = { ci, ri };
+    }
+    st.lastPrompt = null;
+    return st;
+}
+
+// お題を1つ引く（プレイヤーは交互、手足はランダム。置き直しもあり）
+function stateDraw(st, rng) {
+    const who = st.turn % 2 === 0 ? 'A' : 'B';
+    const mine = st.placements[who];
+    const limb = LIMBS[Math.floor(rng() * 4)];
+    const occupied = new Set();
+    for (const w of ['A', 'B']) for (const k in st.placements[w]) {
+        const p = st.placements[w][k]; occupied.add(p.ci + ',' + p.ri);
+    }
+    const cur = mine[limb.key];
+    let pick = null;
+    for (let t = 0; t < 24 && !pick; t++) {
+        const ci = Math.floor(rng() * MAT.cols), ri = Math.floor(rng() * MAT.rows);
+        if (occupied.has(ci + ',' + ri)) continue;
+        if (cur && cur.ci === ci && cur.ri === ri) continue;
+        pick = { ci, ri };
+    }
+    if (!pick) return null;
+    if (!cur) st.order.push({ who, limb: limb.key });
+    mine[limb.key] = pick;
+    st.turn++;
+    st.presetName = '';
+    st.lastPrompt = { who, limb: limb.key, ci: pick.ci, ri: pick.ri };
+    return st.lastPrompt;
+}
+
+function targetPoint(ci, ri) {
+    const [x, z] = circlePos(ci, ri);
+    return [x, 0.03, z];
+}
+
+// 立ったままの姿勢パラメーター（25個：体17＋腕8）。side: -1=A(西の端), +1=B(東の端)
+function standingVec(d, side) {
+    const v = new Float64Array(25);
+    v[0] = side * 1.06; v[1] = d.legH; v[2] = 0;
+    v[3] = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+    v[10] = 0.05; v[14] = 0.05;
+    for (let i = 0; i < 8; i++) v[17 + i] = ARM_NEUTRAL[i];
+    return v;
+}
+
+function clampParam(v, i, d) {
+    const B = [
+        [-1.25, 1.25], [0.28 * d.legH, d.legH + 0.02], [-1.05, 1.05], [-PI, PI],
+        [-1.35, 1.35], [-1.0, 1.0], [-0.55, 1.25], [-0.55, 0.55], [-0.85, 0.85],
+        [-0.5, 2.1], [-0.35, 1.0], [-1.0, 1.2], [0, 2.55],
+        [-0.5, 2.1], [-0.35, 1.0], [-1.0, 1.2], [0, 2.55],
+        [-0.9, 2.9], [-0.5, 2.6], [-1.2, 1.2], [0, 2.5],
+        [-0.9, 2.9], [-0.5, 2.6], [-1.2, 1.2], [0, 2.5]
+    ][i];
+    if (i === 3) { // yaw は -π〜π に丸める
+        while (v > PI) v -= 2 * PI;
+        while (v < -PI) v += 2 * PI;
+        return v;
+    }
+    return v < B[0] ? B[0] : (v > B[1] ? B[1] : v);
+}
+
+// 一人分のコスト（目標への到達・床・自分の体・相手とのめり込み・自然さ）
+
+// 置いた手足の「届き具合」：末端（手・足先）と目標点の距離
+function limbErr(P, L, t) {
+    const e = L.kind === 'hand' ? P.hands[L.idx] : P.feet[L.idx];
+    return Math.hypot(e[0] - t[0], e[1] - t[1], e[2] - t[2]);
+}
+
+function personCost(P, d, v, targets, other, standV, extra) {
+
+    let c = 0, nT = 0;
+    for (const L of LIMBS) {
+        const t = targets[L.key];
+        if (!t) continue;
+        nT++;
+        const err = limbErr(P, L, t);
+        const mult = (extra && extra.boostMap) ? (extra.boostMap[L.key] || 1) : 1;
+        c += mult * (1200 * err * err + 25 * err);
+    }
+    for (let i = 0; i < 10; i++) {
+        const low = P[i].c[1] - P[i].ey;
+        if (low < 0) c += 500 * (-low);
+    }
+    c += 300 * selfPen(P, true);
+    for (const L of LIMBS) {
+        if (targets[L.key]) continue;
+        if (L.kind === 'foot') {
+            const f = P.feet[L.idx];
+            c += 40 * Math.abs(f[1] - 0.03);
+            const hd = Math.hypot(f[0] - P.hip[0], f[2] - P.hip[2]);
+            if (hd > 0.55 * d.legH) c += 30 * (hd - 0.55 * d.legH);
+        } else {
+            for (let k = 0; k < 4; k++) {
+                const dv = v[17 + L.idx * 4 + k] - ARM_NEUTRAL[L.idx * 4 + k];
+                c += 0.35 * dv * dv;
+            }
+        }
+    }
+    if (v[0] < -1.25) c += 200 * (-1.25 - v[0]);
+    if (v[0] > 1.25) c += 200 * (v[0] - 1.25);
+    if (v[2] < -1.05) c += 200 * (-1.05 - v[2]);
+    if (v[2] > 1.05) c += 200 * (v[2] - 1.05);
+    const pyLo = 0.28 * d.legH;
+    if (v[1] < pyLo) c += 400 * (pyLo - v[1]);
+    if (v[1] > d.legH + 0.02) c += 400 * (v[1] - d.legH - 0.02);
+    c += 25 * Math.pow(Math.max(0, Math.abs(v[6]) - 1.05), 2);
+    c += 25 * Math.pow(Math.max(0, Math.abs(v[7]) - 0.55), 2);
+    c += 25 * Math.pow(Math.max(0, Math.abs(v[8]) - 0.85), 2);
+    c += 25 * Math.pow(Math.max(0, Math.abs(v[4]) - 1.25), 2);
+    c += 25 * Math.pow(Math.max(0, Math.abs(v[5]) - 0.9), 2);
+    if (nT === 0 && standV) {
+        let s = 0;
+        for (let i = 0; i < 9; i++) { const dv = v[i] - standV[i]; s += dv * dv; }
+        c += 2.0 * s;
+    }
+    if (other) {
+        for (let i = 0; i < 10; i++) for (let j = 0; j < 10; j++) {
+            const dep = pairDepth(P[i], other[j]);
+            const allow = (i === 0 && j === 0) ? 0.006 : 0.012;
+            if (dep > allow) { const ex = dep - allow; c += 1500 * ex + 12000 * ex * ex; }
+        }
+        const hd = Math.hypot(P[1].c[0] - other[1].c[0], P[1].c[1] - other[1].c[1], P[1].c[2] - other[1].c[2]);
+        const need = P[1].r + other[1].r + 0.01;
+        if (hd < need) c += 900 * (need - hd);
+        if (extra && extra.together) {
+            const hipD = Math.hypot(v[0] - other.hip[0], v[2] - other.hip[2]);
+            if (hipD > extra.together) { const ex = hipD - extra.together; c += 80 * ex + 300 * ex * ex; }
+        }
+        if (extra && extra.torsoPull) {
+            const td = Math.hypot(P[0].c[0] - other[0].c[0], P[0].c[2] - other[0].c[2]);
+            if (td > extra.torsoPull) { const ex = td - extra.torsoPull; c += 160 * ex + 300 * ex * ex; }
+        }
+    }
+    if (extra && extra.lockYaw) {
+        let dy = v[3] - extra.yawSeed;
+        while (dy > PI) dy -= 2 * PI;
+        while (dy < -PI) dy += 2 * PI;
+        c += extra.lockYaw * dy * dy;
+    }
+    return c;
+}
+
+function buildFromVec(d, v) { return buildBody(d, v.subarray(0, 17), v.subarray(17, 25), false); }
+
+function maxTargetErr(PA, PB, ctx) {
+    let m = 0;
+    for (const [P, t] of [[PA, ctx.tA], [PB, ctx.tB]]) {
+        for (const L of LIMBS) {
+            if (!t[L.key]) continue;
+            m = Math.max(m, limbErr(P, L, t[L.key]));
+        }
+    }
+    return m;
+}
+
+// ---- 2ボーンIK：目標点とポール方向から関節の向きを決め、角度パラメーターへ合わせ込む ----
+const FIT_SEEDS = [[0, 0, 0, 0], [0.9, 0.1, 0, 1.2], [1.6, 0.3, 0, 1.8], [0.3, 0.6, 0, 0.6], [0.15, 0.3, 0, 0.45], [2.0, 1.2, 0, 1.4]];
+function fitAngles(getDirs, cur4, wantU, wantL, clampBase, d, fine, multi) {
+    const errOf = a => {
+        const r = getDirs(a);
+        return (r.dU[0] - wantU[0]) ** 2 + (r.dU[1] - wantU[1]) ** 2 + (r.dU[2] - wantU[2]) ** 2
+             + (r.dL[0] - wantL[0]) ** 2 + (r.dL[1] - wantL[1]) ** 2 + (r.dL[2] - wantL[2]) ** 2;
+    };
+    const FIT_STEPS = fine ? [0.3, 0.15, 0.07, 0.035, 0.017, 0.008] : [0.2, 0.1, 0.05, 0.025];
+    const descend = start => {
+        const a = Float64Array.from(start);
+        let best = errOf(a);
+        for (const stp of FIT_STEPS) {
+            for (let sweep = 0; sweep < 2; sweep++) {
+                let imp = false;
+                for (let k = 0; k < 4; k++) {
+                    for (let dr = 1; dr >= -1; dr -= 2) {
+                        const old = a[k];
+                        const nv = clampParam(old + dr * stp, clampBase + k, d);
+                        if (nv === old) continue;
+                        a[k] = nv;
+                        const e = errOf(a);
+                        if (e < best - 1e-12) { best = e; imp = true; } else a[k] = old;
+                    }
+                }
+                if (!imp) break;
+            }
+            if (best < 1e-6) break;
+        }
+        return { a, best };
+    };
+    let r = descend(cur4);
+    if (fine && multi !== false && r.best > 4e-4) { // 合わなければ別の出発点からも試す（局所解で勾配が死ぬのを防ぐ）
+        for (const seed of FIT_SEEDS) {
+            const r2 = descend(seed);
+            if (r2.best < r.best) r = r2;
+            if (r.best < 1e-6) break;
+        }
+    }
+    return r;
+}
+
+// 関節（肘・膝）の位置をポール方向で決める2ボーンIK。戻り値はフレーム内での上下方向
+function ikDirs(frameQ, S, T, L, poleLocal) {
+    const dx = T[0] - S[0], dy = T[1] - S[1], dz = T[2] - S[2];
+    const D = Math.hypot(dx, dy, dz) || 1e-6;
+    const dir = [dx / D, dy / D, dz / D];
+    const Dc = Math.min(D, 2 * L * 0.999);
+    const a = Dc / 2, h = Math.sqrt(Math.max(L * L - a * a, 0));
+    let pw = qRot(frameQ, poleLocal);
+    let w = [pw[0] - dir[0] * (pw[0] * dir[0] + pw[1] * dir[1] + pw[2] * dir[2]),
+             pw[1] - dir[1] * (pw[0] * dir[0] + pw[1] * dir[1] + pw[2] * dir[2]),
+             pw[2] - dir[2] * (pw[0] * dir[0] + pw[1] * dir[1] + pw[2] * dir[2])];
+    let wl = Math.hypot(w[0], w[1], w[2]);
+    if (wl < 1e-4) { // ポールが真っ直ぐな方向と重なったら適当な直交方向を使う
+        w = Math.abs(dir[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+        const dot = w[0] * dir[0] + w[1] * dir[1] + w[2] * dir[2];
+        w = [w[0] - dir[0] * dot, w[1] - dir[1] * dot, w[2] - dir[2] * dot];
+        wl = Math.hypot(w[0], w[1], w[2]) || 1;
+    }
+    w = [w[0] / wl, w[1] / wl, w[2] / wl];
+    const K = [S[0] + dir[0] * a + w[0] * h, S[1] + dir[1] * a + w[1] * h, S[2] + dir[2] * a + w[2] * h];
+    const Tp = [S[0] + dir[0] * Dc, S[1] + dir[1] * Dc, S[2] + dir[2] * Dc];
+    const qi = qInv(frameQ);
+    return {
+        dU: qRot(qi, [(K[0] - S[0]) / L, (K[1] - S[1]) / L, (K[2] - S[2]) / L]),
+        dL: qRot(qi, [(Tp[0] - K[0]) / L, (Tp[1] - K[1]) / L, (Tp[2] - K[2]) / L])
+    };
+}
+
+const _fitG = new Float64Array(17), _fitA = new Float64Array(8);
+// 体のパラメーター（v[0..8]）が決まれば、手足はIKで目標に置く。コストと体パーツを返す
+function evalPerson(ctx, who, v, otherP, standV) {
+    const d = who === 'A' ? ctx.dA : ctx.dB;
+    const targets = who === 'A' ? ctx.tA : ctx.tB;
+    const g = v.subarray(0, 17), arm = v.subarray(17, 25);
+    const Rr = rootQ(g), Rt = qMul(Rr, spineQ(g));
+    const hip = [v[0], v[1], v[2]];
+    for (let i = 0; i < 2; i++) {
+        const s = i === 0 ? -1 : 1;
+        const legKey = i === 0 ? 'RF' : 'LF', handKey = i === 0 ? 'RH' : 'LH';
+        // 脚：置く場所がなければ、腰の真下あたりの床に置く
+        const anchorLeg = vAdd(hip, qRot(Rr, [s * d.legX, 0, 0]));
+        const legTgt = targets[legKey] || [anchorLeg[0] + s * 0.05, 0.03, anchorLeg[2] + 0.03];
+        const base = 9 + i * 4;
+        _fitG.set(g);
+        const getDirsL = a4 => {
+            for (let k = 0; k < 4; k++) _fitG[base + k] = a4[k];
+            return limbDirsLeg(_fitG, i, false);
+        };
+        const legPoles = ctx.fitFine
+            ? [[s * 0.30, 0.25, 1.0], [s * 0.30, 0.7, 0.55], [s * 0.85, 0.3, 0.65], [s * 0.1, 0.9, 0.2], [s * 0.55, 0.45, 0.85], [s * 0.15, 0.15, 1.0]]
+            : [[s * 0.30, 0.25, 1.0]];
+        let bestL = null;
+        for (let pi2 = 0; pi2 < legPoles.length; pi2++) {
+            const dl = ikDirs(Rr, anchorLeg, legTgt, d.legHalf, legPoles[pi2]);
+            const r = fitAngles(getDirsL, [v[base], v[base + 1], v[base + 2], v[base + 3]], dl.dU, dl.dL, base, d, ctx.fitFine, pi2 === 0);
+            if (!bestL || r.best < bestL.best) bestL = r;
+            if (r.best < 1e-6) break;
+        }
+        for (let k = 0; k < 4; k++) v[base + k] = bestL.a[k];
+        // 腕：置く場所がなければニュートラル
+        const ab = 17 + i * 4;
+        if (targets[handKey]) {
+            const anchorArm = vAdd(hip, qRot(Rt, [s * d.shoulderW, d.shoulderYRel, 0]));
+            _fitA.set(arm);
+            const getDirsA = a4 => {
+                for (let k = 0; k < 4; k++) _fitA[i * 4 + k] = a4[k];
+                return limbDirsArm(_fitA, i);
+            };
+            const armPoles = ctx.fitFine
+                ? [[s * 0.9, 0.55, -0.25], [s * 0.9, 0.55, 0.45], [s * 0.4, 0.95, -0.1], [s * 1.2, -0.2, -0.3]]
+                : [[s * 0.9, 0.55, -0.25]];
+            let bestA = null;
+            for (let pi2 = 0; pi2 < armPoles.length; pi2++) {
+                const da = ikDirs(Rt, anchorArm, targets[handKey], d.armHalf, armPoles[pi2]);
+                const r = fitAngles(getDirsA, [v[ab], v[ab + 1], v[ab + 2], v[ab + 3]], da.dU, da.dL, ab, d, ctx.fitFine, pi2 === 0);
+                if (!bestA || r.best < bestA.best) bestA = r;
+                if (r.best < 1e-6) break;
+            }
+            for (let k = 0; k < 4; k++) v[ab + k] = bestA.a[k];
+        } else {
+            for (let k = 0; k < 4; k++) v[ab + k] = ARM_NEUTRAL[i * 4 + k];
+        }
+    }
+    const P = buildBody(d, g, arm, false);
+    const extra = { together: ctx.together || 0, lockYaw: ctx.lockYaw || 0, torsoPull: ctx.torsoPull || 0, yawSeed: who === 'A' ? ctx.yawSeedA : ctx.yawSeedB, boostMap: (ctx.boostWho === who) ? ctx.boostMap : null };
+    return { P, cost: personCost(P, d, v, targets, otherP, standV, extra) };
+}
+
+// 体の9パラメーターだけを座標降下で整える（手足はIKが追随する）
+const BODY_LEVELS = [[0.09, 0.18], [0.045, 0.09], [0.022, 0.045], [0.011, 0.022], [0.005, 0.011]];
+function solveStep(ctx, vA, vB, standA, standB) {
+    let eA = evalPerson(ctx, 'A', vA, null, standA);
+    let eB = evalPerson(ctx, 'B', vB, eA.P, standB);
+    eA = evalPerson(ctx, 'A', vA, eB.P, standA);
+    let PA = eA.P, PB = eB.P, cA = eA.cost, cB = eB.cost;
+    for (const [sp, sa] of BODY_LEVELS) {
+        for (let iter = 0; iter < 2; iter++) {
+            let improved = false;
+            for (let blk = 0; blk < 2; blk++) {
+                const v = blk ? vB : vA, stand = blk ? standB : standA, d = blk ? ctx.dB : ctx.dA;
+                let cur = blk ? cB : cA;
+                for (let i = 0; i < 9; i++) {
+                    const step = i < 3 ? sp : sa;
+                    for (let dirn = 1; dirn >= -1; dirn -= 2) {
+                        const old = v[i];
+                        const nv = clampParam(old + dirn * step, i, d);
+                        if (nv === old) continue;
+                        v[i] = nv;
+                        const e = evalPerson(ctx, blk ? 'B' : 'A', v, blk ? PA : PB, stand);
+                        if (e.cost < cur - 1e-9) {
+                            cur = e.cost; improved = true;
+                            if (blk) { PB = e.P; cB = e.cost; } else { PA = e.P; cA = e.cost; }
+                        } else v[i] = old;
+                    }
+                }
+                if (blk) cB = cur; else cA = cur;
+            }
+            if (!improved) break;
+        }
+        if (maxTargetErr(PA, PB, ctx) < 0.003 && cA + cB < 0.5) break;
+    }
+    ctx.fitFine = true;
+    PA = evalPerson(ctx, 'A', vA, PB, standA).P;
+    PB = evalPerson(ctx, 'B', vB, PA, standB).P;
+    ctx.fitFine = false;
+    return { PA, PB };
+}
+
+// 最初の目標が来たときの出発姿勢（目標の重心寄りに立つ）
+function seedToward(v, d, targets, yawSeed, prof) {
+    const pts = Object.values(targets);
+    if (!pts.length) return;
+    let cx = 0, cz = 0;
+    pts.forEach(p => { cx += p[0]; cz += p[2]; });
+    cx /= pts.length; cz /= pts.length;
+    const mix = prof ? prof.mix : 0.55;
+    v[0] = v[0] * (1 - mix) + cx * mix;
+    v[2] = v[2] * (1 - mix) + cz * mix;
+    v[1] = d.legH * (prof ? prof.py : 0.88);
+    v[3] = yawSeed;
+    v[6] = prof ? prof.spine : 0.25;
+}
+function nudgeHip(v, tgt) {
+    const dx = tgt[0] - v[0], dz = tgt[2] - v[2];
+    if (Math.hypot(dx, dz) > 0.45) { v[0] += dx * 0.3; v[2] += dz * 0.3; }
+}
+
+const PART_LABEL = i => i === 0 ? '胴体' : i === 1 ? '頭' : i <= 5 ? '腕' : '脚';
+function describeContact(PA, PB) {
+    const cats = [
+        [[0], [0], (a, b) => '胴体同士'],
+        [[2, 3, 4, 5], [0], (a, b) => `${a}の腕と${b}の胴体`],
+        [[0], [2, 3, 4, 5], (a, b) => `${a}の胴体と${b}の腕`],
+        [[6, 7, 8, 9], [0], (a, b) => `${a}の脚と${b}の胴体`],
+        [[0], [6, 7, 8, 9], (a, b) => `${a}の胴体と${b}の脚`],
+        [[2, 3, 4, 5], [2, 3, 4, 5], (a, b) => '腕同士'],
+        [[6, 7, 8, 9], [6, 7, 8, 9], (a, b) => '脚同士'],
+        [[2, 3, 4, 5], [6, 7, 8, 9], (a, b) => `${a}の腕と${b}の脚`],
+        [[6, 7, 8, 9], [2, 3, 4, 5], (a, b) => `${a}の脚と${b}の腕`]
+    ];
+    for (const [is, js, fmt] of cats) {
+        for (const i of is) for (const j of js) {
+            if (pairDepth(PA[i], PB[j]) > 0 || obbSep(PA[i], PB[j]) <= 0.012) return fmt('A', 'B');
+        }
+    }
+    return null;
+}
+
+function computeMetrics(PA, PB, ctx) {
+    const shorts = [];
+    for (const [who, P, t] of [['A', PA, ctx.tA], ['B', PB, ctx.tB]]) {
+        for (const L of LIMBS) {
+            if (!t[L.key]) continue;
+            shorts.push({ who, limb: L.key, label: L.label, errCm: limbErr(P, L, t[L.key]) * 100 });
+        }
+    }
+    const hd = Math.hypot(PA[1].c[0] - PB[1].c[0], PA[1].c[1] - PB[1].c[1], PA[1].c[2] - PB[1].c[2]);
+    const faceCm = Math.max(0, (hd - PA[1].r - PB[1].r) * 100);
+    const torsoSepCm = obbSep(PA[0], PB[0]) * 100;
+    let maxPen = 0;
+    for (let i = 0; i < 10; i++) for (let j = 0; j < 10; j++) maxPen = Math.max(maxPen, pairDepth(PA[i], PB[j]));
+    return { shorts, faceCm, torsoSepCm, contact: describeContact(PA, PB), maxPenCm: maxPen * 100 };
+}
+
+// プリセットが意図する体の出発姿勢（あれば）。hip=[x,y,z], yaw, pitch, spine
+function applyBodySeed(v, st, who) {
+    const bs = st.bodySeed && st.bodySeed[who];
+    if (!bs) return false;
+    v[0] = bs.hip[0]; v[1] = bs.hip[1]; v[2] = bs.hip[2];
+    v[3] = bs.yaw; v[4] = bs.pitch || 0; v[5] = 0; v[6] = bs.spine || 0; v[7] = 0; v[8] = 0;
+    return true;
+}
+
+// 届いていない人がいれば、その人の体の出発姿勢を差し替えて解き直す（両人ぶんを巻き戻してから比較する）
+function kickWorst(ctx, st, vA, vB, standA, standB, dA, dB) {
+    const fullScore = () => {
+        const mm = computeMetrics(buildFromVec(dA, vA), buildFromVec(dB, vB), ctx);
+        let worst = null;
+        for (const y of mm.shorts) if (!worst || y.errCm > worst.errCm) worst = y;
+        return { s: mm.shorts.reduce((x, y) => x + y.errCm, 0) + mm.maxPenCm * 2, worst, mm };
+    };
+    let fs = fullScore();
+    if (!fs.worst || fs.worst.errCm <= 3) return false;
+    const who = fs.worst.who;
+    const v = who === 'A' ? vA : vB, d = who === 'A' ? dA : dB, targets = who === 'A' ? ctx.tA : ctx.tB;
+    const pts = Object.values(targets);
+    if (!pts.length) return false;
+    let cx = 0, cz = 0; pts.forEach(pt => { cx += pt[0]; cz += pt[2]; }); cx /= pts.length; cz /= pts.length;
+    const origA = Float64Array.from(vA), origB = Float64Array.from(vB);
+    const variants = [
+        { py: 0.45, pitch: 0, spine: 1.0 }, { py: 0.7, pitch: 0, spine: 0.4 },
+        { py: 0.62, pitch: 1.15, spine: 0.25 }, { py: 0.62, pitch: 1.15, spine: 0.6 },
+        { py: 0.85, pitch: 0.6, spine: 0.9 }
+    ];
+    let bestPair = null;
+    for (const kv of variants) {
+        vA.set(origA); vB.set(origB);
+        v[0] = cx; v[2] = cz; v[1] = d.legH * kv.py; v[3] = st.yawSeed[who];
+        v[4] = kv.pitch; v[5] = 0; v[6] = kv.spine; v[7] = 0; v[8] = 0;
+        solveStep(ctx, vA, vB, standA, standB);
+        const sc = fullScore();
+        if (sc.s < fs.s) { fs = sc; bestPair = [Float64Array.from(vA), Float64Array.from(vB)]; }
+    }
+    if (bestPair) { vA.set(bestPair[0]); vB.set(bestPair[1]); return true; }
+    vA.set(origA); vB.set(origB);
+    return false;
+}
+
+
+// 仕上げの焼きなまし（決定的シード）：局所解で止まった体のパラメーターを揺らして解きほぐす
+function annealPolish(ctx, vA, vB, standA, standB, budget) {
+    const rnd = mulberry32(777);
+    let eA = evalPerson(ctx, 'A', vA, null, standA);
+    let eB = evalPerson(ctx, 'B', vB, eA.P, standB);
+    eA = evalPerson(ctx, 'A', vA, eB.P, standA);
+    let PA = eA.P, PB = eB.P, cA = eA.cost, cB = eB.cost, cur = cA + cB;
+    let best = cur, bestVA = Float64Array.from(vA), bestVB = Float64Array.from(vB);
+    const SIG = [0.05, 0.04, 0.05, 0.12, 0.12, 0.10, 0.12, 0.08, 0.12];
+    for (let it = 0; it < budget; it++) {
+        const frac = 1 - it / budget;
+        const T = 0.06 * frac + 0.001;
+        const blk = rnd() < 0.5 ? 0 : 1;
+        const v = blk ? vB : vA, d = blk ? ctx.dB : ctx.dA;
+        const idx = Math.floor(rnd() * 9);
+        const old = v[idx];
+        v[idx] = clampParam(old + gauss(rnd) * SIG[idx] * (0.25 + 0.75 * frac), idx, d);
+        if (v[idx] === old) continue;
+        let nc;
+        if (blk === 0) {
+            const nA = evalPerson(ctx, 'A', vA, PB, standA);
+            const nB = evalPerson(ctx, 'B', vB, nA.P, standB);
+            nc = nA.cost + nB.cost;
+            if (nc < cur || rnd() < Math.exp(-(nc - cur) / T)) { PA = nA.P; PB = nB.P; cA = nA.cost; cB = nB.cost; cur = nc; }
+            else { v[idx] = old; continue; }
+        } else {
+            const nB = evalPerson(ctx, 'B', vB, PA, standB);
+            const nA = evalPerson(ctx, 'A', vA, nB.P, standA);
+            nc = nA.cost + nB.cost;
+            if (nc < cur || rnd() < Math.exp(-(nc - cur) / T)) { PA = nA.P; PB = nB.P; cA = nA.cost; cB = nB.cost; cur = nc; }
+            else { v[idx] = old; continue; }
+        }
+        if (cur < best) { best = cur; bestVA = Float64Array.from(vA); bestVB = Float64Array.from(vB); }
+    }
+    vA.set(bestVA); vB.set(bestVB);
+}
+
+// ゲーム状態から2人の姿勢を解く（お題の順に1つずつ増やしながら解く＝実際のゲームの進み方）
+function solveGame(hA, gA, hB, gB, st) {
+    const dA = makeDims(hA, gA), dB = makeDims(hB, gB);
+    const attempt = prof => {
+        const standA = standingVec(dA, -1), standB = standingVec(dB, 1);
+        const vA = Float64Array.from(standA), vB = Float64Array.from(standB);
+        const sizeScale = Math.min(1.3, Math.max(0.9, (dA.torsoW + dB.torsoW) / 0.457));
+        const ctx = { dA, dB, tA: {}, tB: {}, together: (st.together || 0) * sizeScale, lockYaw: st.lockYaw || 0, torsoPull: (st.torsoPull || 0) * sizeScale, yawSeedA: st.yawSeed.A, yawSeedB: st.yawSeed.B };
+        const seeded = { A: false, B: false };
+        for (const step of st.order) {
+            const p = st.placements[step.who][step.limb];
+            if (!p) continue;
+            const tgt = targetPoint(p.ci, p.ri);
+            if (step.who === 'A') {
+                ctx.tA[step.limb] = tgt;
+                if (!seeded.A) { if (!applyBodySeed(vA, st, 'A')) seedToward(vA, dA, ctx.tA, st.yawSeed.A, prof); seeded.A = true; }
+                nudgeHip(vA, tgt);
+            } else {
+                ctx.tB[step.limb] = tgt;
+                if (!seeded.B) { if (!applyBodySeed(vB, st, 'B')) seedToward(vB, dB, ctx.tB, st.yawSeed.B, prof); seeded.B = true; }
+                nudgeHip(vB, tgt);
+            }
+            solveStep(ctx, vA, vB, standA, standB);
+            {
+                const Pchk = step.who === 'A' ? buildFromVec(dA, vA) : buildFromVec(dB, vB);
+                const Lchk = LIMB_BY_KEY[step.limb];
+                if (limbErr(Pchk, Lchk, tgt) > 0.08) kickWorst(ctx, st, vA, vB, standA, standB, dA, dB);
+            }
+        }
+        if (st.order.length) { solveStep(ctx, vA, vB, standA, standB); solveStep(ctx, vA, vB, standA, standB); solveStep(ctx, vA, vB, standA, standB); } // 仕上げ
+        if (st.order.length) for (let k = 0; k < 3; k++) { if (!kickWorst(ctx, st, vA, vB, standA, standB, dA, dB)) break; }
+        // 最悪の到達誤差が改善する間だけ、さらに磨く
+        if (st.order.length) {
+            let prevWorst = Infinity;
+            for (let k = 0; k < 6; k++) {
+                const mm = computeMetrics(buildFromVec(dA, vA), buildFromVec(dB, vB), ctx);
+                const w = mm.shorts.reduce((m2, y) => Math.max(m2, y.errCm), 0);
+                if (w <= 0.5 || w >= prevWorst - 0.001) break;
+                prevWorst = w;
+                solveStep(ctx, vA, vB, standA, standB);
+            }
+            // 最終リペア：最悪の手足だけ重みを上げて解き直す（悪化したら戻す）
+            for (let k = 0; k < 3; k++) {
+                const mm = computeMetrics(buildFromVec(dA, vA), buildFromVec(dB, vB), ctx);
+                let worst = null;
+                for (const y of mm.shorts) if (!worst || y.errCm > worst.errCm) worst = y;
+                if (!worst || worst.errCm <= 0.5) break;
+                const snapA = Float64Array.from(vA), snapB = Float64Array.from(vB);
+                ctx.boostWho = worst.who;
+                ctx.boostMap = {};
+                for (const y of mm.shorts) if (y.who === worst.who && y.errCm > 0.5) ctx.boostMap[y.limb] = 6;
+                solveStep(ctx, vA, vB, standA, standB);
+                ctx.boostWho = null; ctx.boostMap = null;
+                const mm2 = computeMetrics(buildFromVec(dA, vA), buildFromVec(dB, vB), ctx);
+                const w2 = mm2.shorts.reduce((m2, y) => Math.max(m2, y.errCm), 0);
+                if (w2 >= worst.errCm - 0.01) { vA.set(snapA); vB.set(snapB); break; }
+            }
+            // それでも残れば焼きなましで解きほぐす（大きく届かない＝本当に届かない場合は除く）
+            {
+                const mm = computeMetrics(buildFromVec(dA, vA), buildFromVec(dB, vB), ctx);
+                const w = mm.shorts.reduce((m2, y) => Math.max(m2, y.errCm), 0);
+                if (w > 0.5 && w < 25) {
+                    const snapA = Float64Array.from(vA), snapB = Float64Array.from(vB);
+                    annealPolish(ctx, vA, vB, standA, standB, 3200);
+                    ctx.fitFine = true;
+                    evalPerson(ctx, 'A', vA, buildFromVec(dB, vB), standA);
+                    evalPerson(ctx, 'B', vB, buildFromVec(dA, vA), standB);
+                    ctx.fitFine = false;
+                    const mm2 = computeMetrics(buildFromVec(dA, vA), buildFromVec(dB, vB), ctx);
+                    const w2 = mm2.shorts.reduce((m2, y) => Math.max(m2, y.errCm), 0);
+                    if (w2 > w + 0.01) { vA.set(snapA); vB.set(snapB); } // 最悪誤差が悪化したら戻す
+                }
+            }
+            ctx.fitFine = true;
+            evalPerson(ctx, 'A', vA, buildFromVec(dB, vB), standA);
+            evalPerson(ctx, 'B', vB, buildFromVec(dA, vA), standB);
+            ctx.fitFine = false;
+        }
+        const PA = buildFromVec(dA, vA), PB = buildFromVec(dB, vB);
+        const metrics = computeMetrics(PA, PB, ctx);
+        const score = metrics.shorts.reduce((s0, s1) => s0 + s1.errCm, 0) + metrics.maxPenCm * 2;
+        return { vA, vB, dA, dB, PA, PB, metrics, score };
+    };
+    let best = attempt(null);
+    const worst = best.metrics.shorts.reduce((m, s1) => Math.max(m, s1.errCm), 0);
+    if (st.order.length && worst > 2.5) { // 解けが悪ければ別の出発姿勢でもう一度
+        const alt = attempt({ mix: 0.75, py: 0.68, spine: 0.5 });
+        if (alt.score < best.score) best = alt;
+    }
+    return best;
+}
+
+function createMannequin(color, heightCm, gender, name, role, otherConfig) {
+    const group = new THREE.Group();
+    const h = heightCm * 0.01;
+    const bodyMat = new THREE.MeshPhongMaterial({
+        color: color,
+        transparent: true,
+        opacity: 0.85
+    });
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
+
+    const headH = h * 0.13;
+    const neckH = h * 0.05;
+    const torsoH = h * 0.37;
+    const legH = h * 0.45;
+    const eyeY = h * 0.94;
+    const torsoW = (gender === 'male' ? 0.26 : 0.21) * (h/1.7);
+    const torsoDepth = torsoW * 0.5;
+
+    const headBox = new THREE.Group();
+    headBox.position.y = eyeY;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(headH * 0.8, 16, 16), bodyMat);
+    head.position.y = (h - headH * 0.5) - eyeY;
+    headBox.add(head);
+
+    [-1, 1].forEach(side => {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(headH * 0.12, 12, 12), eyeMat);
+        eye.position.set(side * (headH * 0.28), 0, (headH * 0.7));
+        headBox.add(eye);
+    });
+    group.add(headBox);
+    group.headParts = headBox;
+
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(headH*0.3, headH*0.3, neckH, 16), bodyMat);
+    neck.position.y = h - headH - (neckH * 0.5);
+    group.add(neck);
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(torsoW, torsoH, torsoDepth), bodyMat);
+    torso.position.y = legH + (torsoH * 0.5);
+    group.add(torso);
+
+    group.arms = [];
+    const armThickness = torsoW * 0.3;
+    const shoulderW = (torsoW * 0.5) + (armThickness * 0.2); // 肩の回転軸を胴体の側面ぎりぎりに置いて、腕を動かしても胴体から離れすぎないようにする（大きいほど離れる）
+    const shoulderY = legH + torsoH - (torsoW * 0.15); 
+    const armLen = h * 0.38;
+
+    [-1, 1].forEach(side => {
+        const anchor = new THREE.Group();
+        anchor.position.set(side * shoulderW, shoulderY, 0);
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(armThickness, armLen, torsoW*0.3), bodyMat);
+        mesh.position.y = -armLen * 0.5;
+        anchor.add(mesh);
+        group.add(anchor);
+        group.arms.push(anchor);
+    });
+
+    group.legs = [];
+    [-1, 1].forEach(side => {
+        const anchor = new THREE.Group();
+        anchor.position.set( side * (torsoW * 0.25), legH, 0 );
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry( torsoW*0.4, legH, torsoW*0.4 ), bodyMat);
+        mesh.position.y = -legH * 0.5;
+        anchor.add(mesh);
+        group.add(anchor);
+        group.legs.push(anchor);
+    });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    ctx.font = "bold 45px sans-serif"; ctx.fillStyle = "#333"; ctx.textAlign = "center";
+    const displayName = name || (role === 'B' ? 'B' : 'A');
+    ctx.fillText(`${displayName} (${heightCm.toFixed(1)}cm)`, 256, 64);
+    const spriteMaterial = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas) });
+    const sprite = new THREE.Sprite(spriteMaterial);
+    sprite.scale.set(1.5, 0.38, 1);
+    sprite.position.y = h + 0.3;
+    group.add(sprite);
+    group.nameTag = sprite;
+
+    group.userData = { height: h, eyeY: eyeY, role: role, depth: torsoDepth, width: torsoW, armThick: armThickness, legH: legH, torsoH: torsoH, shoulderW: shoulderW, shoulderY: shoulderY };
+    group.position.y = 0; group.position.z = 0;
+    return group;
+}
+
+function addJoint(anchor) {
+    const mesh = anchor.children[0];
+    const half = mesh.geometry.parameters.height / 2;
+    mesh.scale.y = 0.5;
+    mesh.position.y = -half / 2;
+    const joint = new THREE.Group();
+    joint.position.y = -half;
+    const lower = new THREE.Mesh(mesh.geometry, mesh.material);
+    lower.scale.y = 0.5;
+    lower.position.y = -half / 2;
+    joint.add(lower);
+    anchor.add(joint);
+    anchor.joint = joint;
+    anchor.half = half;
+}
+
+function aim(node, dir) {
+    const d = dir.clone().normalize();
+    node.rotation.z = Math.asin(Math.max(-1, Math.min(1, d.x)));
+    node.rotation.x = Math.atan2(-d.z, -d.y);
+}
+
+function aimLimb(anchor, dirUpper, dirLower) {
+    aim(anchor, dirUpper);
+    const inv = anchor.quaternion.clone().invert();
+    aim(anchor.joint, dirLower.clone().applyQuaternion(inv));
+}
+
+function setupPivot(p) {
+    const pivot = new THREE.Group();
+    pivot.position.y = p.userData.legH;
+    const upper = p.children.filter(c => !p.legs.includes(c) && c !== p.nameTag);
+    upper.forEach(c => { p.remove(c); c.position.y -= p.userData.legH; pivot.add(c); });
+    p.add(pivot);
+    p.pivot = pivot;
+    p.headParts.rotation.order = 'YXZ';
+}
+
+function applyPose(p, g, arm, ana) {
+    const Rr = rootQ(g), Rs = spineQ(g);
+    p.quaternion.set(Rr[0], Rr[1], Rr[2], Rr[3]);
+    const off = qRot(Rr, [0, p.userData.legH, 0]);
+    p.position.set(g[0] - off[0], g[1] - off[1], g[2] - off[2]);
+    p.pivot.quaternion.set(Rs[0], Rs[1], Rs[2], Rs[3]);
+    for (let i = 0; i < 2; i++) {
+        const dl = limbDirsLeg(g, i, ana);
+        aimLimb(p.legs[i], new THREE.Vector3(dl.dU[0], dl.dU[1], dl.dU[2]), new THREE.Vector3(dl.dL[0], dl.dL[1], dl.dL[2]));
+        const da = limbDirsArm(arm, i);
+        aimLimb(p.arms[i], new THREE.Vector3(da.dU[0], da.dU[1], da.dU[2]), new THREE.Vector3(da.dL[0], da.dL[1], da.dL[2]));
+    }
+}
+
+function aimHead(p, targetWorld) {
+    const head = p.headParts;
+    p.pivot.updateWorldMatrix(true, false);
+    const v = p.pivot.worldToLocal(targetWorld.clone()).sub(head.position);
+    const l = v.length() || 1;
+    const yaw = Math.max(-1.2, Math.min(1.2, Math.atan2(v.x, v.z)));
+    const pitch = Math.max(-0.9, Math.min(0.8, Math.asin(Math.max(-1, Math.min(1, v.y / l)))));
+    head.rotation.set(-pitch, yaw, 0, 'YXZ');
+}
+
+function preparePerson(p) {
+    setupPivot(p);
+    p.arms.forEach(arm => addJoint(arm));
+    p.legs.forEach(leg => addJoint(leg));
+}
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function swapAB() {
+    const fields = ['name', 'gender', 'height', 'color'];
+    fields.forEach(field => {
+        const elA = document.getElementById(field + 'A');
+        const elB = document.getElementById(field + 'B');
+        const tmp = elA.value;
+        elA.value = elB.value;
+        elB.value = tmp;
+    });
+    updateScene();
+}
+
+function setupControls() {
+    const c = document.getElementById('canvas-container');
+    const move = (dx, dy) => {
+        rotation.y -= dx * 0.005; rotation.x -= dy * 0.005;
+        // 三人称は真上(+90°)〜真下(-90°)まで
+        if (currentView === '3rd') rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotation.x));
+    };
+    c.addEventListener('mousedown', () => isDragging = true);
+    window.addEventListener('mouseup', () => isDragging = false);
+    window.addEventListener('mousemove', e => { if(isDragging) move(e.movementX, e.movementY); });
+
+    c.addEventListener('wheel', e => {
+        if (currentView === '3rd') {
+            camDist += e.deltaY * 0.002;
+            camDist = Math.max(0.5, Math.min(10, camDist));
+        }
+    }, { passive: true });
+
+    c.addEventListener('touchstart', e => { 
+        if (e.touches.length === 1) {
+            isDragging = true; 
+            previousTouch = e.touches[0]; 
+            initialPinchDist = null;
+        } else if (e.touches.length === 2 && currentView === '3rd') {
+            isDragging = false;
+            initialPinchDist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+        }
+    }, { passive: false });
+
+    window.addEventListener('touchend', () => { 
+        isDragging = false; 
+        initialPinchDist = null;
+    });
+
+    window.addEventListener('touchmove', e => {
+        if (e.touches.length === 1 && isDragging && previousTouch) {
+            if (e.cancelable) e.preventDefault();
+            const touch = e.touches[0];
+            move(touch.clientX - previousTouch.clientX, touch.clientY - previousTouch.clientY);
+            previousTouch = touch;
+        } else if (e.touches.length === 2 && initialPinchDist !== null && currentView === '3rd') {
+            if (e.cancelable) e.preventDefault();
+            const currentDist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            const diff = currentDist - initialPinchDist;
+            camDist -= diff * 0.005;
+            camDist = Math.max(0.5, Math.min(10, camDist));
+            initialPinchDist = currentDist;
+        }
+    }, { passive: false });
+}
+
+// カラーマットのマットを描く
+function buildMat() {
+    matGroup = new THREE.Group();
+    const base = new THREE.Mesh(
+        new THREE.PlaneGeometry(MAT.W + 0.18, MAT.D + 0.18),
+        new THREE.MeshPhongMaterial({ color: 0xfdf6ec })
+    );
+    base.rotation.x = -Math.PI / 2;
+    base.position.y = 0.001;
+    matGroup.add(base);
+    const edge = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(MAT.W + 0.18, 0.004, MAT.D + 0.18)),
+        new THREE.LineBasicMaterial({ color: 0xcccccc })
+    );
+    edge.position.y = 0.002;
+    matGroup.add(edge);
+    for (let ri = 0; ri < MAT.rows; ri++) {
+        for (let ci = 0; ci < MAT.cols; ci++) {
+            const [x, z] = circlePos(ci, ri);
+            const c = new THREE.Mesh(
+                new THREE.CircleGeometry(MAT.R, 24),
+                new THREE.MeshPhongMaterial({ color: ROW_DEFS[ri].color })
+            );
+            c.rotation.x = -Math.PI / 2;
+            c.position.set(x, 0.004, z);
+            matGroup.add(c);
+        }
+    }
+    scene.add(matGroup);
+}
+
+function init() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xffffff);
+
+    camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 1000);
+    camera.rotation.order = 'YXZ';
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x888888, 2.5));
+    scene.add(new THREE.GridHelper(200, 400, 0xeeeeee, 0xf5f5f5));
+
+    walkGroup = new THREE.Group();
+    scene.add(walkGroup);
+    buildMat();
+
+    clock = new THREE.Clock();
+    setupControls();
+    window.addEventListener('resize', onWindowResize);
+
+    window.updateScene = updateScene;
+    window.switchView = switchView;
+    window.swapAB = swapAB;
+    window.shareToX = shareToX;
+    window.applyPreset = applyPreset;
+    window.drawNext = drawNext;
+    window.resetGame = resetGame;
+
+    window.togglePanel = () => {
+        const panel = document.getElementById('ui-panel');
+        const text = document.getElementById('toggle-text');
+        panel.classList.toggle('collapsed');
+        text.innerText = panel.classList.contains('collapsed') ? '開く' : '閉じる';
+    };
+
+    // 入力フォームからフォーカスが外れた際に、パネルのスクロール位置を上部へリセットする
+    document.querySelectorAll('#ui-panel input, #ui-panel select').forEach(element => {
+        element.addEventListener('blur', () => {
+            const panel = document.getElementById('ui-panel');
+            if (panel) panel.scrollTop = 0;
+            window.scrollTo(0, 0);
+        });
+    });
+
+    updateScene();
+    animate();
+}
+
+function drawNext() { stateDraw(game, drawRng); updateScene(); }
+function applyPreset(i) { game = newGameState(); applyPresetToState(game, i); updateScene(); }
+function resetGame() { game = newGameState(); drawRng = mulberry32((Math.random() * 1e9) | 0); updateScene(); }
+
+function updatePromptDisplay() {
+    const el = document.getElementById('game-status');
+    let html = '';
+    if (game.presetName) html += `<div>鉄板パターン：<strong>${game.presetName}</strong></div>`;
+    if (game.lastPrompt) {
+        const p = game.lastPrompt, L = LIMB_BY_KEY[p.limb], row = ROW_DEFS[p.ri];
+        html += `<div style="font-size:15px;">お題：<strong>${p.who} の ${L.label} → <span style="color:${row.css}">●</span>${row.name}</strong></div>`;
+    }
+    const lines = [];
+    for (const who of ['A', 'B']) {
+        const items = [];
+        for (const L of LIMBS) {
+            const p = game.placements[who][L.key];
+            if (p) items.push(`<span style="color:${ROW_DEFS[p.ri].css}">●</span>${L.label}`);
+        }
+        if (items.length) lines.push(`${who}： ${items.join('　')}`);
+    }
+    if (lines.length) html += `<div>${lines.join('<br>')}</div>`;
+    if (!html) html = '<div>お題を引くか、鉄板パターンを選んでね</div>';
+    el.innerHTML = html;
+}
+
+function renderInfo() {
+    const hA = parseFloat(document.getElementById('heightA').value) || 158;
+    const hB = parseFloat(document.getElementById('heightB').value) || 171.5;
+    document.getElementById('info').innerHTML = `
+        <div class="info-row">
+            <span class="info-label">📏 身長差</span>
+            <span class="info-value">${Math.abs(hA - hB).toFixed(1)}<span class="unit">cm</span></span>
+        </div>
+    `;
+}
+
+function updateScene() {
+    const hA = parseFloat(document.getElementById('heightA').value) || 158;
+    const hB = parseFloat(document.getElementById('heightB').value) || 171.5;
+    const gA = document.getElementById('genderA').value;
+    const gB = document.getElementById('genderB').value;
+
+    [personA, personB].forEach(p => { if (p) { walkGroup.remove(p); walkGroup.remove(p.nameTag); } });
+
+    personA = createMannequin(document.getElementById('colorA').value, hA, gA, document.getElementById('nameA').value, 'A', {});
+    personB = createMannequin(document.getElementById('colorB').value, hB, gB, document.getElementById('nameB').value, 'B', {});
+
+    personA.remove(personA.nameTag); personB.remove(personB.nameTag);
+    preparePerson(personA);
+    preparePerson(personB);
+    walkGroup.add(personA, personB, personA.nameTag, personB.nameTag);
+
+    const sol = solveGame(hA, gA, hB, gB, game);
+    lastSolution = sol;
+    applyPose(personA, sol.vA.subarray(0, 17), sol.vA.subarray(17, 25), false);
+    applyPose(personB, sol.vB.subarray(0, 17), sol.vB.subarray(17, 25), false);
+
+    const nA = document.getElementById('nameA').value || 'A';
+    const nB = document.getElementById('nameB').value || 'B';
+    if (currentView !== '3rd') {
+        const myName = (currentView === 'A') ? nA : nB;
+        document.getElementById('view-label').innerText = `${myName} の視点`;
+        if (currentView === 'A') { personA.headParts.visible = false; personA.nameTag.visible = false; }
+        if (currentView === 'B') { personB.headParts.visible = false; personB.nameTag.visible = false; }
+    }
+
+    renderInfo();
+    updatePromptDisplay();
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    if (!personA || !personB) return;
+    walkGroup.updateMatrixWorld(true);
+
+    const eyeAWorld = personA.headParts.getWorldPosition(new THREE.Vector3());
+    const eyeBWorld = personB.headParts.getWorldPosition(new THREE.Vector3());
+    aimHead(personB, eyeAWorld);
+    aimHead(personA, eyeBWorld);
+
+    [[personA, eyeAWorld], [personB, eyeBWorld]].forEach(([p, e]) => {
+        p.nameTag.position.set(e.x, e.y + p.userData.height * 0.065 + 0.3, e.z);
+    });
+
+    const centerPos = new THREE.Vector3(0, 0.45, 0);
+
+    if (currentView === '3rd') {
+        camera.up.set(0, 1, 0);
+        const horiz = Math.cos(rotation.x) * camDist;
+        camera.position.set(
+            centerPos.x + Math.sin(rotation.y) * horiz,
+            centerPos.y + Math.sin(rotation.x) * camDist,
+            centerPos.z + Math.cos(rotation.y) * horiz
+        );
+        camera.rotation.set(-rotation.x, rotation.y, 0);
+    } else {
+        const self = (currentView === 'A' ? personA : personB);
+        camera.up.set(0, 1, 0);
+        const other = (currentView === 'A' ? personB : personA);
+        self.headParts.getWorldPosition(camera.position);
+        camera.lookAt(other.headParts.getWorldPosition(new THREE.Vector3()));
+        camera.rotateY(rotation.y);
+        camera.rotateX(rotation.x);
+        camera.rotation.z = 0;
+    }
+    renderer.render(scene, camera);
+}
+
+function switchView() {
+    const order = ['3rd', 'A', 'B'];
+    currentView = order[(order.indexOf(currentView) + 1) % 3];
+    const nA = document.getElementById('nameA').value || 'A';
+    const nB = document.getElementById('nameB').value || 'B';
+
+    if (currentView === '3rd') {
+        document.getElementById('view-label').innerText = '三人称視点';
+    } else {
+        const myName = (currentView === 'A') ? nA : nB;
+        document.getElementById('view-label').innerText = `${myName} の視点`;
+    }
+
+    document.getElementById('crosshair').style.display = currentView === '3rd' ? 'none' : 'block';
+    personA.headParts.visible = true; personA.nameTag.visible = true;
+    personB.headParts.visible = true; personB.nameTag.visible = true;
+    if (currentView === 'A') { personA.headParts.visible = false; personA.nameTag.visible = false; }
+    else if (currentView === 'B') { personB.headParts.visible = false; personB.nameTag.visible = false; }
+    if (currentView === '3rd') { rotation.x = DEFAULT_ROT_3RD.x; rotation.y = DEFAULT_ROT_3RD.y * carrySide; }
+    else { rotation.x = 0; rotation.y = 0; }
+}
+
+function shareToX() {
+    const nA = document.getElementById('nameA').value || 'A';
+    const nB = document.getElementById('nameB').value || 'B';
+    const hA = parseFloat(document.getElementById('heightA').value) || 158.0;
+    const hB = parseFloat(document.getElementById('heightB').value) || 171.5;
+    const text = `${nB}(${hB.toFixed(1)}cm)と${nA}(${hA.toFixed(1)}cm)でカラーマットゲーム！\n${game.presetName ? `鉄板パターン：${game.presetName}\n` : ''}#カラーマットゲームシミュレーター\n`;
+    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`, '_blank');
+}
+
+init();
+
+</script>
+</body>
+</html>
